@@ -8,7 +8,7 @@ namespace KSPWheel
     /// Also includes a few display-only variables for debugging in the editor<para/>
     /// Not intended to be useful aside from the intial debugging period, or as a basic example that can be used in the editor; this class has no use in KSP
     /// </summary>
-    [AddComponentMenu("Physics/KSPWheel")]
+    
     public class KSPWheelComponent : MonoBehaviour
     {
 
@@ -110,21 +110,6 @@ namespace KSPWheel
         /// </summary>
         public float surfaceFrictionCoefficient = 1f;
 
-        /// <summary>
-        /// If should use differential motor input for steering
-        /// </summary>
-        public bool tankSteer = false;
-
-        /// <summary>
-        /// If this wheel should have its steering inverted; to be used on 'right side' wheels
-        /// </summary>
-        public bool invertSteer = false;
-
-        /// <summary>
-        /// If true, this wheel will rotate opposite for torque inputs (e.g. rpm will go negative for positive torque inputs)
-        /// </summary>
-        public bool invertMotor = false;
-
         public KSPWheelFrictionType frictionModel = KSPWheelFrictionType.STANDARD;
 
         public KSPWheelSweepType sweepType = KSPWheelSweepType.RAY;
@@ -155,64 +140,22 @@ namespace KSPWheel
 
         #endregion ENDREGION - Unity Editor Display Variables
 
-        private KSPWheelCollider wheelCollider;
-        
-        private float currentMotorTorque;
-        private float currentSteer;
-        private float currentBrakeTorque;
-
-        private GameObject bumpStopCollider;
-
+        private SLWheelCollider wheelCollider;
         public void Start()
         {
-            wheelCollider = new KSPWheelCollider(gameObject, rigidBody);
-            bumpStopCollider = new GameObject("BSC");
-            SphereCollider sc = bumpStopCollider.AddComponent<SphereCollider>();
-            PhysicMaterial mat = new PhysicMaterial("TEST");
-            mat.bounciness = 0.0f;
-            mat.dynamicFriction = 0;
-            mat.staticFriction = 0;
-            sc.material = mat;
-            OnValidate();//manually call to set all current parameters into wheel collider object            
-        }
+            wheelCollider = new SLWheelCollider(gameObject, rigidBody);
 
-        private void sampleInput()
-        {
-            float left = Input.GetKey(KeyCode.A) ? -1 : 0;
-            float right = Input.GetKey(KeyCode.D) ? 1 : 0;
-            float fwd = Input.GetKey(KeyCode.W) ? 1 : 0;
-            float rev = Input.GetKey(KeyCode.S) ? -1 : 0;
-            float brakeInput = Input.GetKey(KeyCode.Space) ? 1 : 0;
-            float forwardInput = fwd + rev;
-            float turnInput = left + right;
-            if (invertSteer) { turnInput = -turnInput; }
-            if (invertMotor) { forwardInput = -forwardInput; }
-            if (tankSteer)
-            {
-                forwardInput = forwardInput + turnInput;
-                if (forwardInput > 1) { forwardInput = 1; }
-                if (forwardInput < -1) { forwardInput = -1; }
-            }
-            float rpm = wheelCollider.rpm;
-            if (rpm >= rpmLimit && forwardInput > 0) { forwardInput = 0; }
-            else if (rpm <= -rpmLimit && forwardInput < 0) { forwardInput = 0; }
-            currentMotorTorque = Mathf.Lerp(currentMotorTorque, forwardInput * maxMotorTorque, throttleResponse*Time.fixedDeltaTime);
-            if (forwardInput == 0 && Mathf.Abs(currentMotorTorque) < 0.25) { currentMotorTorque = 0f; }
-            currentSteer = Mathf.Lerp(currentSteer, turnInput * maxSteerAngle, steeringResponse * Time.fixedDeltaTime);
-            if (turnInput == 0 && Mathf.Abs(currentSteer) < 0.25) { currentSteer = 0f; }
-            currentBrakeTorque = Mathf.Lerp(currentBrakeTorque, brakeInput * maxBrakeTorque, brakeResponse * Time.fixedDeltaTime);
-            if (brakeInput == 0 && currentBrakeTorque < 0.25) { currentBrakeTorque = 0f; }
+            //OnValidate();//manually call to set all current parameters into wheel collider object
         }
 
         public void FixedUpdate()
         {
 
             Vector3 targetPos = suspLock ? transform.position - transform.up * suspensionLength : transform.position;
-            Vector3 pos = bumpStopCollider.transform.position;
-            Vector3 p = Vector3.Lerp(pos, targetPos, Time.fixedDeltaTime);
-            bumpStopCollider.transform.position = p;
 
-            sampleInput();
+            Vector3 p = Vector3.Lerp(pos, targetPos, Time.fixedDeltaTime);
+
+
             wheelCollider.motorTorque = currentMotorTorque;
             wheelCollider.steeringAngle = currentSteer;
             wheelCollider.brakeTorque = currentBrakeTorque;
@@ -273,25 +216,7 @@ namespace KSPWheel
             }
         }
 
-        public void LateUpdate()
-        {
-            wheelCollider.drawDebug();
-        }
 
-        /// <summary>
-        /// Display a visual representation of the wheel in the editor. Unity has no inbuilt gizmo for 
-        /// circles, so a sphere is used. Unlike the original WC, I've represented the wheel at top and bottom 
-        /// of suspension travel
-        /// </summary>
-        void OnDrawGizmosSelected()
-        {
-            Gizmos.color = Color.green;
-            Gizmos.DrawWireSphere(gameObject.transform.position, wheelRadius);
-            Vector3 pos2 = gameObject.transform.position + -gameObject.transform.up * suspensionLength;
-            if (wheelCollider != null) { pos2 += gameObject.transform.up * wheelCollider.compressionDistance; }
-            Gizmos.DrawWireSphere(pos2, wheelRadius);
-            Gizmos.DrawRay(gameObject.transform.position - gameObject.transform.up * wheelRadius, -gameObject.transform.up * suspensionLength);
-        }
 
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System;
 using UnityEngine;
+using System.Collections;
 
 namespace KSPWheel
 {
@@ -42,6 +43,15 @@ namespace KSPWheel
         public int raycastMask = ~(1 << 26);//default cast to all layers except 26; 1<<26 sets 26 to the layer; ~inverts all bits in the mask (26 = KSP WheelColliderIgnore layer)
         public KSPWheelFrictionType frictionModel = KSPWheelFrictionType.STANDARD;
         public KSPWheelSweepType sweepType = KSPWheelSweepType.RAY;
+
+        //stuff shamelessly pasted from my joint class
+        public ConfigurableJoint susJoint;
+        public GameObject contact;
+        public Rigidbody contactRb;
+        public Vector3 lastHitPoint;
+        public float lateralGrip = 2000;
+        RaycastHit hit;
+        int layerMask;
 
         //sticky-friction vars;
         //TODO -- add get/set methods for these to expose them for configuration
@@ -93,13 +103,11 @@ namespace KSPWheel
         /// Initialize a wheel-collider object for the given GameObject (the wheel collider), and the given rigidbody (the RB that the wheel-collider will apply forces to)<para/>
         /// -Both- must be valid references (i.e. cannot be null)
         /// </summary>
-        /// <param name="wheel"></param>
-        /// <param name="rigidBody"></param>
-        public SLWheelCollider(GameObject wheel, Rigidbody rigidBody)
+        public void init()
         {
-            this.wheel = wheel;
+            wheel = this.gameObject;
             if (wheel == null) { throw new NullReferenceException("Wheel game object for WheelCollider may not be null!"); }
-            this.rigidBody = rigidBody;
+            rigidBody = this.gameObject.GetComponentInParent<Rigidbody>();
             if (rigidBody == null) { throw new NullReferenceException("Rigidbody for wheel collider may not be null!"); }
             //default friction curves; may be set to custom curves through the get/set methods below
             sideFrictionCurve = new KSPWheelFrictionCurve(0.06f, 1.2f, 0.08f, 1.0f, 0.65f);
@@ -241,15 +249,103 @@ namespace KSPWheel
 
         public void Start()
         {
+            layerMask = 1 << 26;
+            layerMask = ~layerMask;
 
+            if (wheel.transform.localScale != Vector3.one)
+            {
+                print("The GameObject this script is aplied to should be set to scale 1,1,1!!!!");
+            }
+
+            // Needs to be an empty GO eventually - cube for convenience for now. Has to have Rigidybody for joint to attach to.
+            contact = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            //Destroy(contact.GetComponent("BoxCollider"));
+            //Destroy(gameObject.GetComponent("MeshRenderer"));
+            contact.layer = 26;
+            print(-wheel.transform.up);
+            contact.transform.position = wheel.transform.position + -wheel.transform.up * (suspensionLength + wheelRadius);
+            contact.transform.rotation = wheel.transform.rotation;
+            contactRb = contact.AddComponent<Rigidbody>();
+            contactRb.mass = 0;
+
+            // Creates the joint with carefully chosen parameters
+            susJoint = rigidBody.gameObject.AddComponent<ConfigurableJoint>();
+            susJoint.anchor = Vector3.zero;
+            susJoint.axis = new Vector3(1, 0, 0);
+            susJoint.autoConfigureConnectedAnchor = false;
+            susJoint.secondaryAxis = new Vector3(0, 1, 0);
+
+            susJoint.xMotion = ConfigurableJointMotion.Limited;
+            susJoint.yMotion = ConfigurableJointMotion.Limited;
+            susJoint.zMotion = ConfigurableJointMotion.Free;
+
+            susJoint.angularXMotion = ConfigurableJointMotion.Free;
+            susJoint.angularYMotion = ConfigurableJointMotion.Free;
+            susJoint.angularZMotion = ConfigurableJointMotion.Free;
+            susJoint.targetPosition = new Vector3(0, -suspensionLength, 0); //essentially where to suspend to
+
+            var SJLS = new SoftJointLimitSpring();
+            SJLS.spring = 0;
+            SJLS.damper = 0;
+            susJoint.linearLimitSpring = SJLS;
+
+            var SJL = new SoftJointLimit();
+            SJL.bounciness = 0;
+            SJL.limit = suspensionLength; //this sets the hard limit, or what are often called bump stops
+            SJL.contactDistance = 0;
+            susJoint.linearLimit = SJL;
+
+            //THIS CONTROLS LATERAL GRIP
+            var XD = new JointDrive(); //only XDrive used for now. X and Z can be used independently if we wish
+            XD.positionSpring = lateralGrip;
+            XD.positionDamper = 100;
+            XD.maximumForce = 10000000;
+            susJoint.xDrive = XD;
+
+            //THIS CONTROLS SUSPENSION SETTINGS
+            var YD = new JointDrive(); //only yDrive used for now. X and Z can be used independently if we wish
+            YD.positionSpring = spring;
+            YD.positionDamper = damper;
+            YD.maximumForce = 10000000;
+            susJoint.yDrive = YD;
+
+            susJoint.connectedBody = contactRb; //Attached the joint to the contact object
+
+            susJoint.connectedAnchor = Vector3.zero;
+            StartCoroutine(WaitForFixed()); // Start FixedUpdate when we're ready. Prevents FixedUpdate running before.
         }
 
+        IEnumerator WaitForFixed()
+        {
+            while (true)
+            {
+                if (Physics.Raycast(wheel.transform.position, -wheel.transform.up, out hit, suspensionLength - .1f, layerMask))
+                //if(Physics.SphereCast(wheel.transform.position, wheelRadius,-wheel.transform.up, out hit, suspensionDistance - wheelRadius, layerMask))
+                {
+                    grounded = true;
+                    contactRb.isKinematic = true;
+
+                    contactRb.position = hit.point;
+                    contactRb.rotation = wheel.transform.rotation;
+
+                    lastHitPoint = hit.point;
+                }
+                else
+                {
+                    grounded = false;
+                    contactRb.position = wheel.transform.position + -wheel.transform.up * (suspensionLength + wheelRadius);
+                    contactRb.rotation = wheel.transform.rotation;
+                    contactRb.isKinematic = false;
+                }
+                yield return new WaitForFixedUpdate();
+            }
+        }
 
         /// <summary>
         /// UpdateWheel() should be called by the controlling component/container on every FixedUpdate that this wheel should apply forces for.<para/>
         /// Collider and physics integration can be disabled by simply no longer calling UpdateWheel
         /// </summary>
-        public void FixedUpdate()
+        public void OnFixedUpdate()
         {
 
             wheelForward = Quaternion.AngleAxis(steerAngle, wheel.transform.up) * wheel.transform.forward;
