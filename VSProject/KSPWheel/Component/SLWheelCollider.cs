@@ -29,10 +29,9 @@ namespace KSPWheel
         //externally set values
         public float wheelMass = 1f;
         public float wheelRadius = 0.5f;
-        public float suspensionLength = 1f;
-        public float suspensionTarget = 0f;
-        public float spring = 10f;
-        public float damper = 2f;
+        public float suspensionLength = 2f;
+        public float spring = 1000f;
+        public float damper = 100f;
         public float fwdFrictionCoef = 1f;
         public float sideFrictionCoef = 1f;
         public float surfaceFrictionCoef = 1f;
@@ -50,7 +49,7 @@ namespace KSPWheel
         public Rigidbody contactRb;
         public Vector3 lastHitPoint;
         public float lateralGrip = 2000;
-        RaycastHit hit;
+        public RaycastHit hit;
         int layerMask;
 
         //sticky-friction vars;
@@ -71,7 +70,7 @@ namespace KSPWheel
         private float vSpring;//linear velocity of spring in m/s, derived from prevCompression - currentCompression along suspension axis
         private float fDamp;//force exerted by the damper this physics frame, in newtons
 
-        private bool grounded = false;
+        public bool grounded = false;
         private Vector3 wheelUp;
         private Vector3 wheelForward;
         private Vector3 wheelRight;
@@ -103,22 +102,26 @@ namespace KSPWheel
         /// Initialize a wheel-collider object for the given GameObject (the wheel collider), and the given rigidbody (the RB that the wheel-collider will apply forces to)<para/>
         /// -Both- must be valid references (i.e. cannot be null)
         /// </summary>
-        public void init()
+        public bool init()
         {
             wheel = this.gameObject;
-            if (wheel == null) { throw new NullReferenceException("Wheel game object for WheelCollider may not be null!"); }
+            if (wheel == null)
+            {
+                throw new NullReferenceException("Wheel game object for WheelCollider may not be null!");
+                return false;
+            }
             rigidBody = this.gameObject.GetComponentInParent<Rigidbody>();
-            if (rigidBody == null) { throw new NullReferenceException("Rigidbody for wheel collider may not be null!"); }
+            if (rigidBody == null)
+            {
+                throw new NullReferenceException("Rigidbody for wheel collider may not be null!");
+                return false;
+            }
             //default friction curves; may be set to custom curves through the get/set methods below
             sideFrictionCurve = new KSPWheelFrictionCurve(0.06f, 1.2f, 0.08f, 1.0f, 0.65f);
             fwdFrictionCurve = new KSPWheelFrictionCurve(0.06f, 1.2f, 0.08f, 1.0f, 0.65f);
+
+            return true;
         }
-
-
-        /// <summary>
-        /// Get/Set the wheel radius.  This determines the simulated size of the wheel, and along with mass determines the wheel moment-of-inertia which plays into wheel acceleration
-        /// </summary>
-        public float radius;
 
         /// <summary>
         /// Get/Set the current forward friction curve.  This determines the maximum available traction force for a given slip ratio.  See the KSPWheelFrictionCurve class for more info.
@@ -249,6 +252,12 @@ namespace KSPWheel
 
         public void Start()
         {
+
+            if(!init())
+            {
+                throw new NullReferenceException("Init failed Could not find correct components");
+                return;
+            }
             layerMask = 1 << 26;
             layerMask = ~layerMask;
 
@@ -258,11 +267,10 @@ namespace KSPWheel
             }
 
             // Needs to be an empty GO eventually - cube for convenience for now. Has to have Rigidybody for joint to attach to.
-            contact = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            //Destroy(contact.GetComponent("BoxCollider"));
-            //Destroy(gameObject.GetComponent("MeshRenderer"));
+            contact = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            Destroy(contact.GetComponent("SphereCollider"));
+            //Destroy(contact.GetComponent("MeshRenderer"));
             contact.layer = 26;
-            print(-wheel.transform.up);
             contact.transform.position = wheel.transform.position + -wheel.transform.up * (suspensionLength + wheelRadius);
             contact.transform.rotation = wheel.transform.rotation;
             contactRb = contact.AddComponent<Rigidbody>();
@@ -270,19 +278,19 @@ namespace KSPWheel
 
             // Creates the joint with carefully chosen parameters
             susJoint = rigidBody.gameObject.AddComponent<ConfigurableJoint>();
-            susJoint.anchor = Vector3.zero;
+            susJoint.anchor = -wheel.transform.up * (suspensionLength + wheelRadius); // -wheel.transform.up * (suspensionLength * wheelRadius);
             susJoint.axis = new Vector3(1, 0, 0);
             susJoint.autoConfigureConnectedAnchor = false;
             susJoint.secondaryAxis = new Vector3(0, 1, 0);
 
-            susJoint.xMotion = ConfigurableJointMotion.Limited;
-            susJoint.yMotion = ConfigurableJointMotion.Limited;
+            susJoint.xMotion = ConfigurableJointMotion.Limited; //lateral grip
+            susJoint.yMotion = ConfigurableJointMotion.Limited; //suspension
             susJoint.zMotion = ConfigurableJointMotion.Free;
 
             susJoint.angularXMotion = ConfigurableJointMotion.Free;
             susJoint.angularYMotion = ConfigurableJointMotion.Free;
             susJoint.angularZMotion = ConfigurableJointMotion.Free;
-            susJoint.targetPosition = new Vector3(0, -suspensionLength, 0); //essentially where to suspend to
+            susJoint.targetPosition = new Vector3(0, 0, 0); //essentially where to suspend to
 
             var SJLS = new SoftJointLimitSpring();
             SJLS.spring = 0;
@@ -291,8 +299,8 @@ namespace KSPWheel
 
             var SJL = new SoftJointLimit();
             SJL.bounciness = 0;
-            SJL.limit = suspensionLength; //this sets the hard limit, or what are often called bump stops
-            SJL.contactDistance = 0;
+            SJL.limit = suspensionLength; //this sets the hard limit, or what are often called bump stops.
+            SJL.contactDistance = suspensionLength;
             susJoint.linearLimit = SJL;
 
             //THIS CONTROLS LATERAL GRIP
@@ -312,31 +320,28 @@ namespace KSPWheel
             susJoint.connectedBody = contactRb; //Attached the joint to the contact object
 
             susJoint.connectedAnchor = Vector3.zero;
-            StartCoroutine(WaitForFixed()); // Start FixedUpdate when we're ready. Prevents FixedUpdate running before.
+            StartCoroutine(WaitForFixed()); // Start FixedUpdate when we're ready. Prevents FixedUpdate running before. Disable wheel by stopping
         }
 
         IEnumerator WaitForFixed()
         {
             while (true)
             {
-                if (Physics.Raycast(wheel.transform.position, -wheel.transform.up, out hit, suspensionLength - .1f, layerMask))
-                //if(Physics.SphereCast(wheel.transform.position, wheelRadius,-wheel.transform.up, out hit, suspensionDistance - wheelRadius, layerMask))
+                if(checkSuspensionContact())
                 {
-                    grounded = true;
                     contactRb.isKinematic = true;
-
-                    contactRb.position = hit.point;
+                    contactRb.position = wheel.transform.position + (-wheel.transform.up * hit.distance);
                     contactRb.rotation = wheel.transform.rotation;
-
                     lastHitPoint = hit.point;
                 }
                 else
                 {
-                    grounded = false;
-                    contactRb.position = wheel.transform.position + -wheel.transform.up * (suspensionLength + wheelRadius);
+                    
+                    contactRb.position = wheel.transform.position + (-wheel.transform.up * (suspensionLength + wheelRadius)  );
                     contactRb.rotation = wheel.transform.rotation;
                     contactRb.isKinematic = false;
                 }
+
                 yield return new WaitForFixedUpdate();
             }
         }
@@ -344,8 +349,11 @@ namespace KSPWheel
         /// <summary>
         /// UpdateWheel() should be called by the controlling component/container on every FixedUpdate that this wheel should apply forces for.<para/>
         /// Collider and physics integration can be disabled by simply no longer calling UpdateWheel
+        /// 
+        /// QUESTION: Is any of this relevant to grip?
+        /// 
         /// </summary>
-        public void OnFixedUpdate()
+        public void UpdateWheel()
         {
 
             wheelForward = Quaternion.AngleAxis(steerAngle, wheel.transform.up) * wheel.transform.forward;
@@ -379,7 +387,6 @@ namespace KSPWheel
                 localVelocity.x = Vector3.Dot(worldVelocityAtHit.normalized, wR) * mag;
                 localVelocity.y = Vector3.Dot(worldVelocityAtHit.normalized, hitNormal) * mag;
 
-                calcSpring();
                 integrateForces();
                 if (!prevGrounded && onImpactCallback != null)//if was not previously grounded, call-back with impact data; we really only know the impact velocity
                 {
@@ -450,11 +457,6 @@ namespace KSPWheel
             currentAngularVelocity += wBrake * -Mathf.Sign(currentAngularVelocity);
         }
 
-        private ConfigurableJoint bumpStopJoint;
-        private GameObject hitPointObject;
-        private Rigidbody hitPointRigidbody;
-
-
         /// <summary>
         /// Uses either ray- or sphere-cast to check for suspension contact with the ground, calculates current suspension compression, and caches the world-velocity at the contact point
         /// </summary>
@@ -480,12 +482,13 @@ namespace KSPWheel
         /// <returns></returns>
         private bool suspensionSweepRaycast()
         {
-            RaycastHit hit;
-            if (Physics.Raycast(wheel.transform.position, -wheel.transform.up, out hit, suspensionLength + wheelRadius, raycastMask))
+            //if (Physics.Raycast(wheel.transform.position, -wheel.transform.up, out hit, suspensionLength + wheelRadius, raycastMask))
+            if (Physics.Raycast(wheel.transform.position, -wheel.transform.up, out hit, suspensionLength + wheelRadius, layerMask))
             {
                 currentSuspensionCompression = suspensionLength + wheelRadius - hit.distance;
                 hitNormal = hit.normal;
                 hitCollider = hit.collider;
+                susJoint.connectedAnchor = Vector3.zero;
                 hitPoint = hit.point;
                 grounded = true;
                 return true;
@@ -500,16 +503,17 @@ namespace KSPWheel
         /// <returns></returns>
         private bool suspensionSweepSpherecast()
         {
-            RaycastHit hit;
             //need to start cast above max-compression point, to allow for catching the case of @ bump-stop
             float rayOffset = wheelRadius;
-            if (Physics.SphereCast(wheel.transform.position + wheel.transform.up * rayOffset, radius, -wheel.transform.up, out hit, suspensionLength + rayOffset, raycastMask))
+            if (Physics.SphereCast(wheel.transform.position + wheel.transform.up * wheelRadius, wheelRadius, -wheel.transform.up, out hit, suspensionLength + wheelRadius, layerMask))
             {
                 currentSuspensionCompression = suspensionLength + rayOffset - hit.distance;
                 hitNormal = hit.normal;
                 hitCollider = hit.collider;
                 hitPoint = hit.point;
                 grounded = true;
+                Debug.DrawLine(hit.point, hit.point - hit.normal, Color.red);
+                
                 return true;
             }
             grounded = false;
@@ -569,22 +573,6 @@ namespace KSPWheel
         }
 
         #region REGION - Friction model shared functions
-
-        private void calcSpring()
-        {
-            //calculate damper force from the current compression velocity of the spring; damp force can be negative
-            vSpring = (currentSuspensionCompression - prevSuspensionCompression) / Time.fixedDeltaTime;//per second velocity
-            fDamp = damper * vSpring;
-            //calculate spring force basically from displacement * spring
-            float fSpring = (currentSuspensionCompression - (suspensionLength * suspensionTarget)) * spring;
-            //if spring would be negative at this point, zero it to allow the damper to still function; this normally occurs when target > 0, at the lower end of wheel droop below target position
-            if (fSpring < 0) { fSpring = 0; }
-            //integrate damper value into spring force
-            fSpring += fDamp;
-            //if final spring value is negative, zero it out; negative springs are not possible without attachment to the ground; gravity is our negative spring :)
-            if (fSpring < 0) { fSpring = 0; }
-            localForce.y = fSpring;
-        }
 
         private void calcFriction()
         {
