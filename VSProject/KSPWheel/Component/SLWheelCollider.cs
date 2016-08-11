@@ -50,6 +50,7 @@ namespace KSPWheel
         public Vector3 lastHitPoint;
         public float lateralGrip = 2000;
         public RaycastHit hit;
+        public JointDrive suspensionSetting;
         int layerMask;
 
         //sticky-friction vars;
@@ -150,12 +151,6 @@ namespace KSPWheel
         /// Higher values denote more friction, greater traction, and less slip
         /// </summary>
         public float surfaceFrictionCoefficient;
-
-        /// <summary>
-        /// Get/set the current steering angle to be used by wheel friction code.<para/>
-        /// Any steering-response speed should be calculated in the external module before setting this value.
-        /// </summary>
-        public float steeringAngle;
 
         /// <summary>
         /// Return true/false if tire was grounded on the last suspension check
@@ -266,7 +261,10 @@ namespace KSPWheel
                 print("The GameObject this script is aplied to should be set to scale 1,1,1!!!!");
             }
 
-            // Needs to be an empty GO eventually - cube for convenience for now. Has to have Rigidybody for joint to attach to.
+            Vector3 ITP = rigidBody.transform.InverseTransformPoint(wheel.transform.position);
+            print(ITP);
+
+            // Needs to be an empty GO eventually - Sphere for convenience for now. Has to have Rigidybody for joint to attach to.
             contact = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             Destroy(contact.GetComponent("SphereCollider"));
             //Destroy(contact.GetComponent("MeshRenderer"));
@@ -278,7 +276,7 @@ namespace KSPWheel
 
             // Creates the joint with carefully chosen parameters
             susJoint = rigidBody.gameObject.AddComponent<ConfigurableJoint>();
-            susJoint.anchor = -wheel.transform.up * (suspensionLength + wheelRadius); // -wheel.transform.up * (suspensionLength * wheelRadius);
+            susJoint.anchor = ITP + -wheel.transform.up * (suspensionLength + wheelRadius);
             susJoint.axis = new Vector3(1, 0, 0);
             susJoint.autoConfigureConnectedAnchor = false;
             susJoint.secondaryAxis = new Vector3(0, 1, 0);
@@ -288,7 +286,7 @@ namespace KSPWheel
             susJoint.zMotion = ConfigurableJointMotion.Free;
 
             susJoint.angularXMotion = ConfigurableJointMotion.Free;
-            susJoint.angularYMotion = ConfigurableJointMotion.Free;
+            susJoint.angularYMotion = ConfigurableJointMotion.Limited; //steering
             susJoint.angularZMotion = ConfigurableJointMotion.Free;
             susJoint.targetPosition = new Vector3(0, 0, 0); //essentially where to suspend to
 
@@ -297,47 +295,67 @@ namespace KSPWheel
             SJLS.damper = 0;
             susJoint.linearLimitSpring = SJLS;
 
-            var SJL = new SoftJointLimit();
-            SJL.bounciness = 0;
-            SJL.limit = suspensionLength; //this sets the hard limit, or what are often called bump stops.
-            SJL.contactDistance = suspensionLength;
-            susJoint.linearLimit = SJL;
+            var suspensionLimit = new SoftJointLimit();
+            suspensionLimit.bounciness = 0;
+            suspensionLimit.limit = suspensionLength; //this sets the hard limit, or what are often called bump stops.
+            suspensionLimit.contactDistance = suspensionLength;
+            susJoint.linearLimit = suspensionLimit;
 
             //THIS CONTROLS LATERAL GRIP
-            var XD = new JointDrive(); //only XDrive used for now. X and Z can be used independently if we wish
+            var XD = new JointDrive(); 
             XD.positionSpring = lateralGrip;
             XD.positionDamper = 100;
             XD.maximumForce = 10000000;
             susJoint.xDrive = XD;
 
             //THIS CONTROLS SUSPENSION SETTINGS
-            var YD = new JointDrive(); //only yDrive used for now. X and Z can be used independently if we wish
-            YD.positionSpring = spring;
-            YD.positionDamper = damper;
-            YD.maximumForce = 10000000;
-            susJoint.yDrive = YD;
+            suspensionSetting = new JointDrive();
+            suspensionSetting.positionSpring = spring;
+            suspensionSetting.positionDamper = damper;
+            suspensionSetting.maximumForce = 10000000;
+            susJoint.yDrive = suspensionSetting;
+
+            
+            
+            //THIS CONTROLS STEERING DRIVE
+            var AXD = new JointDrive();
+            AXD.positionSpring = 100;
+            AXD.positionDamper = 0;
+            AXD.maximumForce = 10000000;
+            susJoint.angularYZDrive = AXD;
 
             susJoint.connectedBody = contactRb; //Attached the joint to the contact object
 
             susJoint.connectedAnchor = Vector3.zero;
             StartCoroutine(WaitForFixed()); // Start FixedUpdate when we're ready. Prevents FixedUpdate running before. Disable wheel by stopping
         }
-
+        /// <summary>
+        /// Updates suspension values, fires the raycast and manipulates suspension contact point for the spring to act against.
+        /// Friction calcs probably want calling from here.
+        /// </summary>
+        /// <returns></returns>
         IEnumerator WaitForFixed()
         {
             while (true)
             {
-                if(checkSuspensionContact())
+                suspensionSetting.positionSpring = spring;
+                suspensionSetting.positionDamper = damper;
+                suspensionSetting.maximumForce = 10000000;
+                susJoint.yDrive = suspensionSetting;
+
+                susJoint.targetRotation = Quaternion.Euler(0, steerAngle, 0);
+
+                if (checkSuspensionContact())
                 {
                     contactRb.isKinematic = true;
                     contactRb.position = wheel.transform.position + (-wheel.transform.up * hit.distance);
-                    contactRb.rotation = wheel.transform.rotation;
+                    //contactRb.rotation = wheel.transform.rotation;
                     lastHitPoint = hit.point;
                 }
                 else
                 {
                     
-                    contactRb.position = wheel.transform.position + (-wheel.transform.up * (suspensionLength + wheelRadius)  );
+                    contactRb.position = wheel.transform.position + (-wheel.transform.up * (suspensionLength + wheelRadius)); //move the object to the end of suspension travel
                     contactRb.rotation = wheel.transform.rotation;
                     contactRb.isKinematic = false;
                 }
