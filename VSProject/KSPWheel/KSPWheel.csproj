@@ -9,8 +9,9 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>KSPWheel</RootNamespace>
     <AssemblyName>KSPWheel</AssemblyName>
-    <TargetFrameworkVersion>v4.5.2</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
+    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -48,9 +49,6 @@
     <Reference Include="KSPCore">
       <HintPath>libs\KSPCore.dll</HintPath>
     </Reference>
-    <Reference Include="KSPUtil">
-      <HintPath>libs\KSPUtil.dll</HintPath>
-    </Reference>
     <Reference Include="MiscUtil-r285">
       <HintPath>libs\MiscUtil-r285.dll</HintPath>
     </Reference>
@@ -61,9 +59,7 @@
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Data" />
-    <Reference Include="System.Net.Http" />
     <Reference Include="System.Xml" />
     <Reference Include="UnityEngine">
       <HintPath>libs\UnityEngine.dll</HintPath>
@@ -86,6 +82,7 @@
     <Compile Include="Component\KSPWheelComponent.cs" />
     <Compile Include="Component\KSPWheelFrictionCurve.cs" />
     <Compile Include="Component\LFWheelGrip.cs" />
+    <Compile Include="Component\SLWheelCollider.cs" />
     <Compile Include="PartModule\KSPWheelAnimationState.cs" />
     <Compile Include="PartModule\KSPWheelInfo.cs" />
     <Compile Include="PartModule\KSPWheelState.cs" />
@@ -98,11 +95,9 @@
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PostBuildEvent>copy $(TargetPath) $(SolutionDir)\..\GameData\KSPWheel\Plugin\$(TargetFileName)
+    <PostBuildEvent>xcopy /y "$(TargetPath)" "C:\KSP1.2\GameData\KerbalFoundries\Plugins\"
 
-copy $(ProjectDir)Component\*.* $(SolutionDir)\..\UnityProject\Assets\Scripts\*.*
-
-</PostBuildEvent>
+xcopy /y "$(TargetPath)" "C:\Users\ianel\Documents\GitHub\KSPWheel\VSProject\KSPWheel\libs"</PostBuildEvent>
   </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.

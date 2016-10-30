@@ -260,11 +260,7 @@ namespace KSPWheel
 
         #region REGION - Standard KSP/Unity Overrides
 
-        public override void OnLoad(ConfigNode node)
-        {
-            base.OnLoad(node);
-            //NOOP?
-        }
+
 
         public override void OnSave(ConfigNode node)
         {
